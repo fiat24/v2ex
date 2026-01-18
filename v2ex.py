@@ -89,7 +89,9 @@ def get_once():
 def check_in(once):
     # 无内容返回
     url = "https://www.v2ex.com/mission/daily/redeem?once=" + once
-    SESSION.get(url, headers=HEADERS)
+    headers = HEADERS.copy()
+    headers["Referer"] = "https://www.v2ex.com/mission/daily"
+    SESSION.get(url, headers=headers)
 
 
 # 查询
