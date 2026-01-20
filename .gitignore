@@ -1,0 +1,28 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+
+# Virtual Environment
+venv/
+env/
+ENV/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Environment variables (重要：永远不要提交这些文件)
+.env
+.env.local
+
+# 日志文件
+*.log
+
+# 操作系统
+.DS_Store
+Thumbs.db
