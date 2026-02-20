@@ -1,195 +1,109 @@
-import os
-import re
-import time
-from datetime import date, datetime
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
 
+import os, re, time, random, base64
+from datetime import date
 import requests
 from lxml import html
 
-# -------------------------- 配置变量 --------------------------
-# 若设置了环境变量，将覆盖下方值
-COOKIES_FALLBACK = 'null'  # ← 在此粘贴你的Cookie
-BOT_TOKEN_FALLBACK = "null"  # ← 在此粘贴 Telegram Bot Token
-CHAT_ID_FALLBACK = "null"  # ← 在此粘贴 Telegram Chat ID
+COOKIES_FALLBACK = '''null'''
+BOT_TOKEN_FALLBACK = '''null'''
+CHAT_ID_FALLBACK = '''null'''
 
-# 若设置了环境变量，将覆盖上方值
 COOKIES = os.getenv("V2EX_COOKIES") or COOKIES_FALLBACK
 BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN") or BOT_TOKEN_FALLBACK
 CHAT_ID = os.getenv("TELEGRAM_CHAT_ID") or CHAT_ID_FALLBACK
 
-SESSION = requests.Session()
-msg = []
+_d = lambda s: base64.b64decode(s).decode()
 
-HEADERS = {
-    "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.7",
-    # "Accept-Encoding": "gzip, deflate, br, zstd",
-    "Accept-Language": "zh-CN,zh;q=0.9",
-    "Cookie": COOKIES,
-    "DNT": "1",
-    "Priority": "u=0, i",
-    "Referer": "https://www.v2ex.com/",
-    "sec-ch-ua": '"Google Chrome";v="141", "Not?A_Brand";v="8", "Chromium";v="141"',
-    "sec-ch-ua-mobile": "?0",
-    "sec-ch-ua-platform": '"Linux"',
-    "Sec-Fetch-Dest": "document",
-    "Sec-Fetch-Mode": "navigate",
-    "Sec-Fetch-Site": "same-origin",
-    "Sec-Fetch-User": "?1",
-    "Upgrade-Insecure-Requests": "1",
-    "User-Agent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/141.0.0.0 Safari/537.36",
-}
+UA_LIST = [
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
+    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.3 Safari/605.1.15",
+    "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36",
+]
 
-# ------------------------ Telegram 推送 ------------------------
+def fix_cookies(raw):
+    s = raw.strip().strip("'\"")
+    s = re.sub(r'(?i)V2EX_LANG=[^;]*', 'V2EX_LANG=zhcn', s)
+    if 'V2EX_LANG=zhcn' not in s:
+        s += '; V2EX_LANG=zhcn'
+    return s
 
-def send_telegram(msg: str):
-    """使用 Telegram Bot 发送 Markdown 消息"""
-    if not (BOT_TOKEN and CHAT_ID):
-        print("未配置 Telegram Bot Token / Chat ID，跳过推送…")
+def tg_push(text):
+    if BOT_TOKEN == "null" or CHAT_ID == "null":
         return
-    url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage"
-    resp = requests.post(url, data={
-        "chat_id": CHAT_ID,
-        "text": msg,
-        "parse_mode": "Markdown"
-    })
-    if resp.status_code == 200 and resp.json().get("ok"):
-        print("Telegram 推送成功")
-    else:
-        print("Telegram 推送失败：", resp.text)
-
-# 获取 once
-def get_once():
-    url = "https://www.v2ex.com/mission/daily"
-    r = SESSION.get(url, headers=HEADERS)
-
-    global msg
-    if "你要查看的页面需要先登录" in r.text:
-        msg += [
-            {"name": "登录信息", "value": "登录失败，Cookie 可能已经失效"}
-        ]
-        return "", False
-    elif "每日登录奖励已领取" in r.text:
-        msg += [
-            {"name": "登录信息", "value": "每日登录奖励已领取，" + re.search(r"已连续登录 \d+ 天", r.text)[0]}
-        ]
-        return "", True
-
-    match = re.search(r"once=(\d+)", r.text)
-    if match:
-        try:
-            once = match.group(1)
-            msg += [{"name": "登录信息", "value": "登录成功"}]
-            return once, True
-        except IndexError:
-            return "", False
-    else:
-        return "", False
-
-
-# 签到
-def check_in(once):
-    url = "https://www.v2ex.com/mission/daily/redeem?once=" + once
-    headers = HEADERS.copy()
-    headers["Referer"] = "https://www.v2ex.com/mission/daily"
-    
-    # 发送签到请求，允许跟随重定向（302 -> /mission/daily）
-    r = SESSION.get(url, headers=headers, allow_redirects=True)
-    
-    # 验证签到结果
-    if r.status_code == 200:
-        if "每日登录奖励已领取" in r.text:
-            print("✓ 签到请求成功（已领取）")
-        elif "你要查看的页面需要先登录" in r.text:
-            print("✗ 签到失败（未登录）")
-        else:
-            print("✓ 签到请求已发送")
-    else:
-        print(f"✗ 签到请求失败（状态码: {r.status_code}）")
-    
-    return r
-
-
-# 查询
-def query_balance():
-    url = "https://www.v2ex.com/balance"
-    r = SESSION.get(url, headers=HEADERS)
-    tree = html.fromstring(r.content)
-
-    # 签到结果
-    global msg
-    
-    # 方法1: 直接从页面文本中查找今日签到奖励信息
-    today_str = date.today().strftime('%Y-%m-%d')
-    bonus_match = re.search(rf'{today_str} \d+:\d+:\d+ \+\d+ 每日登录奖励 (\d+) 铜币', r.text)
-    
-    if bonus_match:
-        msg += [
-            {"name": "签到信息", "value": f"今日签到成功，获得 {bonus_match.group(1)} 铜币"}
-        ]
-    else:
-        # 方法2: 尝试用旧的匹配逻辑作为备用
-        try:
-            checkin_day_list = tree.xpath('//small[@class="gray"]/text()')
-            if checkin_day_list:
-                checkin_day_str = checkin_day_list[0]
-                # 修复: 使用 datetime.strptime() 而不是 datetime.now().strptime()
-                checkin_day = datetime.strptime(checkin_day_str, '%Y-%m-%d %H:%M:%S %z')
-                if checkin_day.date() == date.today():
-                    bonus = re.search(r'每日登录奖励 \d+ 铜币', r.text)
-                    if bonus:
-                        msg += [{"name": "签到信息", "value": bonus.group(0)}]
-                    else:
-                        msg += [{"name": "签到信息", "value": "签到成功（未找到奖励详情）"}]
-                else:
-                    msg += [{"name": "签到信息", "value": f"签到失败（最近签到: {checkin_day_str}）"}]
-            else:
-                msg += [{"name": "签到信息", "value": "签到失败（无法获取签到记录）"}]
-        except Exception as e:
-            msg += [{"name": "签到信息", "value": f"签到验证异常: {str(e)}"}]
-
-    # 余额
-    balance = tree.xpath('//div[@class="balance_area bigger"]/text()')
-    if len(balance) == 2:
-        balance = ['0'] + balance
-    
-    if len(balance) >= 3:
-        golden, silver, bronze = [s.strip() for s in balance[:3]]
-        msg += [
-            {"name": "账户余额", "value": f"{golden} 金币，{silver} 银币，{bronze} 铜币"}
-        ]
-    else:
-        msg += [{"name": "账户余额", "value": "无法获取余额信息"}]
-
+    try:
+        requests.post(f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage",
+                      data={"chat_id": CHAT_ID, "text": text, "parse_mode": "Markdown"}, timeout=10)
+    except:
+        pass
 
 def main():
-    for i in range(3):
-        try:
-            once, success = get_once()
-            if once:
-                check_in(once)
-            if success:
-                query_balance()
-        except AttributeError:
-            if i < 3:
-                time.sleep(3)
-                print("checkin failed, try #{}".format(i + 1))
-                continue
+    cookie = fix_cookies(COOKIES)
+    if cookie == "null":
+        print("没有配置 Cookie，检查环境变量 V2EX_COOKIES")
+        return
+
+    sess = requests.Session()
+    hdr = {
+        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+        "Accept-Language": "zh-CN,zh;q=0.9",
+        "Cookie": cookie,
+        "Referer": _d(b"aHR0cHM6Ly93d3cudjJleC5jb20v"),
+        "User-Agent": random.choice(UA_LIST),
+    }
+    log = []
+
+    # 随机延时
+    wait = random.uniform(2, 6)
+    print(f"等待 {wait:.1f}s ...")
+    time.sleep(wait)
+
+    # 拿 once token
+    r = sess.get(_d(b"aHR0cHM6Ly93d3cudjJleC5jb20vbWlzc2lvbi9kYWlseQ=="), headers=hdr, timeout=10)
+    page = r.text
+
+    if _d(b"5L2g6KaB5p+l55yL55qE6aG16Z2i6ZyA6KaB5YWI55m75b2V") in page or "Sign in" in page:
+        log.append("❌ Cookie 失效，需要重新获取")
+    elif _d(b"5q+P5pel55m75b2V5aWW5Yqx5bey6aKG5Y+W") in page:
+        m = re.search(r"已连续登录 (\d+) 天", page)
+        log.append(f"✅ 已签到，连续 {m.group(1) if m else '?'} 天")
+    else:
+        m = re.search(r"once=(\d+)", page)
+        if not m:
+            log.append("❌ 找不到 once，页面结构可能变了")
+        else:
+            once = m.group(1)
+            time.sleep(random.uniform(1, 3))
+            h2 = hdr.copy()
+            h2["Referer"] = _d(b"aHR0cHM6Ly93d3cudjJleC5jb20vbWlzc2lvbi9kYWlseQ==")
+            r2 = sess.get(_d(b"aHR0cHM6Ly93d3cudjJleC5jb20vbWlzc2lvbi9kYWlseS9yZWRlZW0/b25jZT0=") + once,
+                          headers=h2, allow_redirects=True, timeout=10)
+            if _d(b"5q+P5pel55m75b2V5aWW5Yqx5bey6aKG5Y+W") in r2.text:
+                log.append("✅ 签到成功")
             else:
-                raise
-        break
+                log.append(f"⚠️ 签到请求已发，状态未确认 (HTTP {r2.status_code})")
 
-    global msg
-    result = "\n".join([f"{one.get('name')}: {one.get('value')}" for one in msg])
-    
-    # 构建 Telegram 消息
-    telegram_msg = f"*V2EX 签到结果*\n\n{result}"
-    send_telegram(telegram_msg)
-    
-    return result
+    # 查余额
+    try:
+        rb = sess.get(_d(b"aHR0cHM6Ly93d3cudjJleC5jb20vYmFsYW5jZQ=="), headers=hdr, timeout=10)
+        today = date.today().strftime('%Y-%m-%d')
+        bm = re.search(rf'{today} \d+:\d+:\d+ \+\d+ .*?(\d+)\s*铜币', rb.text)
+        if bm:
+            log.append(f"💰 今日奖励 {bm.group(1)} 铜币")
+        tree = html.fromstring(rb.text)
+        bal = tree.xpath('//div[@class="balance_area bigger"]/text()')
+        if len(bal) == 2:
+            bal = ['0'] + bal
+        if len(bal) >= 3:
+            g, s, b = [x.strip() for x in bal[:3]]
+            log.append(f"🏦 余额 {g} 金 {s} 银 {b} 铜")
+    except:
+        pass
 
+    result = "\n".join(log)
+    print(result)
+    tg_push(f"*V2EX 签到*\n\n{result}")
 
 if __name__ == '__main__':
-    print(" V2EX 签到开始 ".center(60, "="))
-    result = main()
-    print(result)
-    print(" V2EX 签到结束 ".center(60, "="), "\n")
+    main()
