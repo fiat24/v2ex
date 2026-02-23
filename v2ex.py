@@ -20,9 +20,9 @@ from requests import Session, post
 from lxml import html
 
 # -------------------------- 配置变量 --------------------------
-COOKIES_FALLBACK = ""  # ← 在此粘贴 V2EX Cookie
-BOT_TOKEN        = ""  # ← 在此粘贴 Telegram Bot Token
-CHAT_ID          = ""  # ← 在此粘贴 Telegram Chat ID
+COOKIES_FALLBACK = ''''''  # ← 在三引号之间粘贴 V2EX Cookie
+BOT_TOKEN        = ''''''  # ← 在三引号之间粘贴 Telegram Bot Token
+CHAT_ID          = ''''''  # ← 在三引号之间粘贴 Telegram Chat ID
 
 # 若设置了环境变量，将覆盖上方值
 COOKIES   = os.getenv("V2EX_COOKIES")        or COOKIES_FALLBACK
