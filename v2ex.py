@@ -79,10 +79,20 @@ def main():
             h2["Referer"] = _d(b"aHR0cHM6Ly93d3cudjJleC5jb20vbWlzc2lvbi9kYWlseQ==")
             r2 = sess.get(_d(b"aHR0cHM6Ly93d3cudjJleC5jb20vbWlzc2lvbi9kYWlseS9yZWRlZW0/b25jZT0=") + once,
                           headers=h2, allow_redirects=True, timeout=10)
-            if _d(b"5q+P5pel55m75b2V5aWW5Yqx5bey6aKG5Y+W") in r2.text:
+
+            # 重新访问签到页面来确认最终状态
+            time.sleep(random.uniform(1, 2))
+            r3 = sess.get(_d(b"aHR0cHM6Ly93d3cudjJleC5jb20vbWlzc2lvbi9kYWlseQ=="),
+                          headers=hdr, timeout=10)
+            verified_page = r3.text
+
+            if _d(b"5q+P5pel55m75b2V5aWW5Yqx5bey6aKG5Y+W") in verified_page:
+                mc = re.search(r"已连续登录 (\d+) 天", verified_page)
+                log.append(f"✅ 签到成功，连续 {mc.group(1) if mc else '?'} 天")
+            elif _d(b"5q+P5pel55m75b2V5aWW5Yqx5bey6aKG5Y+W") in r2.text:
                 log.append("✅ 签到成功")
             else:
-                log.append(f"⚠️ 签到请求已发，状态未确认 (HTTP {r2.status_code})")
+                log.append(f"⚠️ 签到请求已发 (HTTP {r2.status_code})，验证页返回 HTTP {r3.status_code}")
 
     # 查余额
     try:
@@ -97,7 +107,7 @@ def main():
             bal = ['0'] + bal
         if len(bal) >= 3:
             g, s, b = [x.strip() for x in bal[:3]]
-            log.append(f"🏦 余额 {g} 金 {s} 银 {b} 铜")
+            log.append(f"🏦 当前总余额：{g} 金币，{s} 银币，{b} 铜币")
     except:
         pass
 
